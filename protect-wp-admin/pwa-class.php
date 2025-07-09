@@ -9,19 +9,37 @@
 if ( ! defined( 'ABSPATH' ) ) exit; // Exit if accessed directly
 global $getPwaOptions;
 /** Get all options value */
-if(!function_exists('get_pwa_setting_options')):
+if ( ! function_exists( 'get_pwa_setting_options' ) ) :
 function get_pwa_setting_options() {
-		global $wpdb;
-		$pwaOptions = $wpdb->get_results("SELECT option_name, option_value FROM $wpdb->options WHERE option_name LIKE 'pwa_%'");
-								
-		foreach ($pwaOptions as $option) {
-			$pwaOptions[$option->option_name] =  $option->option_value;
-		}
-		return $pwaOptions;	
-	}
-endif;	
+	// Static cache to avoid repeated option loading during single request
+	static $cached_options = null;
 
-GLOBAL  $getPwaOptions;
+	if ( null !== $cached_options ) {
+		return $cached_options;
+	}
+
+	$option_keys = array(
+		'pwa_active',
+		'pwa_rewrite_text',
+		'pwa_restrict',
+		'pwa_logout',
+		'pwa_allow_custom_users',
+		'pwa_logo_path',
+		'pwa_login_page_bg_color',
+		'pwa_login_page_color',
+	);
+
+	$options = array();
+	foreach ( $option_keys as $key ) {
+		$options[ $key ] = get_option( $key, '' );
+	}
+
+	$cached_options = $options;
+
+	return $cached_options;
+}
+endif;
+
 $getPwaOptions = get_pwa_setting_options();
 if(isset($getPwaOptions['pwa_active']) && '1'==$getPwaOptions['pwa_active'])
 {
@@ -53,34 +71,33 @@ if(!function_exists('check_login_status')):
 		}
 endif;
 
-if(!function_exists('pwa_logout_user_after_settings_save')):
-function pwa_logout_user_after_settings_save()
-{
-	$getPwaOptions=get_pwa_setting_options();
-    if(isset($_GET['settings-updated']) && $_GET['settings-updated'] && isset($_GET['page']) && $_GET['page']=='pwa-settings')
-    {
-    flush_rewrite_rules();
+if ( ! function_exists( 'pwa_logout_user_after_settings_save' ) ) :
+function pwa_logout_user_after_settings_save() {
+	$getPwaOptions = get_pwa_setting_options();
+
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Safe usage, read-only check after settings save
+	$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Safe usage, read-only check after settings save
+	$settings_updated = isset( $_GET['settings-updated'] ) ? sanitize_text_field( wp_unslash( $_GET['settings-updated'] ) ) : '';
+
+	if ( $page === 'pwa-settings' && $settings_updated ) {
+
+		flush_rewrite_rules();
+
+		if ( is_array( $getPwaOptions ) && ! empty( $getPwaOptions['pwa_logout'] ) && ! empty( $getPwaOptions['pwa_rewrite_text'] )) {
+			wp_redirect( site_url( '/' . $getPwaOptions['pwa_rewrite_text'] ) );
+			exit;
+		}
 	}
-	
-  if(isset($_GET['settings-updated']) && $_GET['settings-updated'] && isset($_GET['page']) && $_GET['page']=='pwa-settings' && isset($getPwaOptions['pwa_logout']) && $getPwaOptions['pwa_logout']==1)
-   {
-     $URL=str_replace('&amp;','&',wp_logout_url());
-      if(isset($getPwaOptions['pwa_rewrite_text']) && isset($getPwaOptions['pwa_logout']) && $getPwaOptions['pwa_logout']==1 && $getPwaOptions['pwa_rewrite_text']!=''){
-      wp_redirect(site_url('/'.$getPwaOptions['pwa_rewrite_text']));
-     }else
-     {
-		 //silent
-		 }
-     //wp_redirect($URL);
-   }
 }
 endif;
+
 /** Create a new rewrite rule for change to wp-admin url */
 if(!function_exists('init_pwa_admin_rewrite_rules')):
 function init_pwa_admin_rewrite_rules() {
 	$getPwaOptions=get_pwa_setting_options();
     if(isset($getPwaOptions['pwa_active']) && (isset($getPwaOptions['pwa_rewrite_text']) && $getPwaOptions['pwa_rewrite_text']!='')){
-	$newurl=strip_tags($getPwaOptions['pwa_rewrite_text']);
+    $newurl = wp_strip_all_tags( $getPwaOptions['pwa_rewrite_text'] );
     add_rewrite_rule( $newurl.'/?$', 'wp-login.php', 'top' );
     add_rewrite_rule( $newurl.'/register/?$', 'wp-login.php?action=register', 'top' );
     add_rewrite_rule( $newurl.'/lostpassword/?$', 'wp-login.php?action=lostpassword', 'top' );
@@ -98,100 +115,79 @@ wp_enqueue_script("jquery");
 }
 endif;
 
-if( !function_exists( 'pwa_admin_url_redirect_conditions') ):
-    
+if ( ! function_exists( 'pwa_admin_url_redirect_conditions' ) ) :
 function pwa_admin_url_redirect_conditions() {
-    
-	$getPwaOptions=get_pwa_setting_options();
-	
-	$pwaActualURLAry =array
-	                       (
-                           site_url('/wp-login.php'),
-                           site_url('/wp-login.php/'),
-                           site_url('/wp-login'),
-                           site_url('/wp-login/'),
-                           site_url('/wp-admin'),
-                           site_url('/wp-admin/'),
-                           );
-    $request_url = pwa_get_current_page_url($_SERVER);
-    $newUrl = explode('?',$request_url);
-//	print_r($pwaActualURLAry); echo $newUrl[0];exit;
-	
- if(! is_user_logged_in() && in_array($newUrl[0],$pwaActualURLAry) ) {
-     
-     if(wp_doing_ajax() && $newUrl[0]==site_url('/wp-admin/admin-ajax.php')) {
-     return true;
-     }
-     
-/** is forgot password link */
-if( isset($_GET['login']) && isset($_GET['action']) && $_GET['action']=='rp' && $_GET['login']!='')
-{
-$username = sanitize_text_field($_GET['login']);
-if(username_exists($username))
-{
-//silent
-}else{ wp_redirect(home_url('/'),301); //exit;
-}
-}elseif(isset($_GET['action']) && $_GET['action']=='rp')
-{
-	//silent
-	}
-elseif(isset($_GET['action']) && isset($_GET['error']) && $_GET['action']=='lostpassword' && $_GET['error']=='invalidkey')
-{
-	wp_redirect( home_url( '/' ),301 );//exit;
-	}
-elseif(isset($_GET['action']) && $_GET['action']=='resetpass')
-{
-// silent 
-	}
-	else{
 
-	wp_redirect(home_url('/'),301);//exit;
-	   }
+	$getPwaOptions = get_pwa_setting_options();
 
+	$pwaActualURLAry = array(
+		site_url( '/wp-login.php' ),
+		site_url( '/wp-login.php/' ),
+		site_url( '/wp-login' ),
+		site_url( '/wp-login/' ),
+		site_url( '/wp-admin' ),
+		site_url( '/wp-admin/' ),
+	);
 
-		//exit;
+	$request_url = pwa_get_current_page_url( $_SERVER );
+	$newUrl = explode( '?', $request_url );
+
+	if ( ! is_user_logged_in() && in_array( $newUrl[0], $pwaActualURLAry, true ) ) {
+
+		if ( wp_doing_ajax() && $newUrl[0] === site_url( '/wp-admin/admin-ajax.php' ) ) {
+			return true;
 		}
-		else if(isset($getPwaOptions['pwa_restrict']) && $getPwaOptions['pwa_restrict']==1 && is_user_logged_in())
-		{
-			global $current_user;
-	        $user_roles = $current_user->roles;
-	        $user_ID = $current_user->ID;
-	        $user_role = array_shift($user_roles);
-	        
-	        if(isset($getPwaOptions['pwa_allow_custom_users']) && $getPwaOptions['pwa_allow_custom_users']!='')
-	        {
-				$userids=explode(',' ,$getPwaOptions['pwa_allow_custom_users']);
-				
-				if(is_array($userids))
-				{
-					$userids=explode(',' ,$getPwaOptions['pwa_allow_custom_users']);
-					}else
-					{
-						$userids[]=$getPwaOptions['pwa_allow_custom_users'];
-						}
-				}else
-				{
-					$userids=array();
-					}
-	        
-			if($user_role=='administrator' || in_array($user_ID,$userids))
-			{
-				//silent is gold
-				}else
-				{
-					
-					show_admin_bar(false); // disble admin_bar for guest user
-					 
-					wp_redirect(home_url('/'));//exit;
-					}
-			}else
-			{
-				//silent is gold
-				}
-	
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Safe read-only access
+		$login  = isset( $_GET['login'] ) ? sanitize_text_field( wp_unslash( $_GET['login'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Safe read-only access
+		$action = isset( $_GET['action'] ) ? sanitize_text_field( wp_unslash( $_GET['action'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Safe read-only access
+		$error  = isset( $_GET['error'] ) ? sanitize_text_field( wp_unslash( $_GET['error'] ) ) : '';
+
+		if ( $action === 'rp' && $login !== '' ) {
+			if ( username_exists( $login ) ) {
+				// valid user, allow reset
+			} else {
+				wp_redirect( home_url( '/' ), 301 );
+				exit;
+			}
+		} elseif ( $action === 'rp' ) {
+			// silent
+		} elseif ( $action === 'lostpassword' && $error === 'invalidkey' ) {
+			wp_redirect( home_url( '/' ), 301 );
+			exit;
+		} elseif ( $action === 'resetpass' ) {
+			// silent
+		} else {
+			wp_redirect( home_url( '/' ), 301 );
+			exit;
+		}
+	}
+
+	// Restrict wp-admin access for non-admin users
+	if ( isset( $getPwaOptions['pwa_restrict'] ) && (int) $getPwaOptions['pwa_restrict'] === 1 && is_user_logged_in() ) {
+		global $current_user;
+		wp_get_current_user();
+		$user_roles = (array) $current_user->roles;
+		$user_ID    = $current_user->ID;
+		$user_role  = array_shift( $user_roles );
+
+		$allowed_ids = array();
+		if ( ! empty( $getPwaOptions['pwa_allow_custom_users'] ) ) {
+			$allowed_ids_raw = explode( ',', $getPwaOptions['pwa_allow_custom_users'] );
+			$allowed_ids     = array_map( 'absint', $allowed_ids_raw );
+		}
+
+		if ( $user_role !== 'administrator' && ! in_array( $user_ID, $allowed_ids, true ) ) {
+			show_admin_bar( false );
+			wp_redirect( home_url( '/' ) );
+			exit;
+		}
+	}
 }
 endif;
+
 /** Get the current url*/
 if(!function_exists('pwa_current_path_protocol')):
 function pwa_current_path_protocol($s, $use_forwarded_host=false)
@@ -251,7 +247,7 @@ add_filter( 'login_headerurl', 'pwa_login_logo_url' );
   Hooks to overide option value before save it into database 
 * ************************************************************/
 function pwa_update_field_rewrite_text( $new_value, $old_value ) {
-$new_value =  str_replace('/','-',trim(stripslashes(strip_tags($new_value))));
+$new_value = str_replace('/', '-', trim(stripslashes(wp_strip_all_tags($new_value))));
 return $new_value;
 }
 add_filter( 'pre_update_option_pwa_rewrite_text', 'pwa_update_field_rewrite_text', 10, 2 );
@@ -279,20 +275,23 @@ function pwa_reset_password_message( $message, $key, $user_login ) {
 
 	// Create new message
 	
-$message = __( 'Hi ' . $user_login, 'wpexpertsin' ) . "\n";
+// translators: %s: Username of the person resetting the password.
+$message = sprintf( __( 'Hi %s', 'protect-wp-admin' ), $user_login ) . "\n";
+		
+// translators: 1: Username of the user requesting password reset. 2: The home URL of the site.
+$message .= sprintf( __( 'Someone has requested a password reset for the following account %1$s on %2$s.', 'protect-wp-admin' ), $user_login, network_home_url( '/' ) ) . "\n";
 
-$message .= __( '
-Someone has requested a password reset for the following account  ' . $user_login.sprintf( __( ' on  %s' ), network_home_url( '/' ) ), 'wpexpertsin' ) . "\n";
 
 
+// translators: %s is the username.
 $message .= sprintf( __( '
-Username: %s', 'wpexpertsin' ), $user_login ) ."\n";
+Username: %s', 'protect-wp-admin' ), $user_login ) ."\n";
 
 $message .= __( "
-If you didn't make this request, just ignore this email. If you'd like to proceed:", 'wpexpertsin' ) . "\n";
+If you didn't make this request, just ignore this email. If you'd like to proceed:", 'protect-wp-admin' ) . "\n";
 
 $message .= __( '
-To reset your password, visit the following address:', 'wpexpertsin' ) . "\n";
+To reset your password, visit the following address:', 'protect-wp-admin' ) . "\n";
 
 $message .= $reset_link . "\n";
 
