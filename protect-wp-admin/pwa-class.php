@@ -62,7 +62,7 @@ if(!function_exists('check_login_status')):
 		$newadminurl = site_url($getPwaOptions['pwa_rewrite_text']);
 		 if ( is_user_logged_in() && $current_uri==$newadminurl) 
 		 {
-				wp_redirect(admin_url()); die();
+				wp_safe_redirect(admin_url()); exit();
 			} else {
 				//echo 'slient';
 			}
@@ -85,7 +85,7 @@ function pwa_logout_user_after_settings_save() {
 		flush_rewrite_rules();
 
 		if ( is_array( $getPwaOptions ) && ! empty( $getPwaOptions['pwa_logout'] ) && ! empty( $getPwaOptions['pwa_rewrite_text'] )) {
-			wp_redirect( site_url( '/' . $getPwaOptions['pwa_rewrite_text'] ) );
+			wp_safe_redirect( site_url( '/' . $getPwaOptions['pwa_rewrite_text'] ) );
 			exit;
 		}
 	}
@@ -149,18 +149,18 @@ function pwa_admin_url_redirect_conditions() {
 			if ( username_exists( $login ) ) {
 				// valid user, allow reset
 			} else {
-				wp_redirect( home_url( '/' ), 301 );
+				wp_safe_redirect( home_url( '/' ), 301 );
 				exit;
 			}
 		} elseif ( $action === 'rp' ) {
 			// silent
 		} elseif ( $action === 'lostpassword' && $error === 'invalidkey' ) {
-			wp_redirect( home_url( '/' ), 301 );
+			wp_safe_redirect( home_url( '/' ), 301 );
 			exit;
 		} elseif ( $action === 'resetpass' ) {
 			// silent
 		} else {
-			wp_redirect( home_url( '/' ), 301 );
+			wp_safe_redirect( home_url( '/' ), 301 );
 			exit;
 		}
 	}
@@ -181,7 +181,7 @@ function pwa_admin_url_redirect_conditions() {
 
 		if ( $user_role !== 'administrator' && ! in_array( $user_ID, $allowed_ids, true ) ) {
 			show_admin_bar( false );
-			wp_redirect( home_url( '/' ) );
+			wp_safe_redirect( home_url( '/' ) );
 			exit;
 		}
 	}
@@ -215,28 +215,42 @@ if( !function_exists( 'pwa_get_current_page_url' ) ):
 endif;
 
 add_action( 'login_enqueue_scripts', 'pwa_update_login_page_logo' );
-/* Change Wordpress Default Logo */
-if(!function_exists('pwa_update_login_page_logo')):
-	function pwa_update_login_page_logo() 
-	{
-		wp_enqueue_script( 'pwa-login',  plugin_dir_url( __FILE__ ) . 'js/pwa-login.js?v=1' );
-		$newadmin = 'nwp'.get_option("pwa_rewrite_text");
-		$bg = get_option("pwa_login_page_bg_color");
-		$color = get_option("pwa_login_page_color");
-		$logo = get_option("pwa_logo_path");
-		$su = site_url();
-		wp_localize_script( 'pwa-login', 'pwaawp_object',
-				array( 
-					'u' => $newadmin,
-					's' => $su,
-					'l' => $logo,
-					'b' => $bg,
-					'c' => $color,
-				)
-			);
 
-	}
+if ( ! function_exists( 'pwa_update_login_page_logo' ) ) :
+function pwa_update_login_page_logo() {
+
+    $plugin_version = '4.1'; // Use plugin version or filemtime() for cache-busting
+
+    // Enqueue login page JS with proper version
+    wp_enqueue_script(
+        'pwa-login',
+        plugin_dir_url( __FILE__ ) . 'js/pwa-login.js',
+        array(),          // dependencies
+        $plugin_version,  // version
+        true              // in footer
+    );
+
+    // Prepare localized data
+    $newadmin = 'nwp' . get_option( 'pwa_rewrite_text' );
+    $bg       = get_option( 'pwa_login_page_bg_color' );
+    $color    = get_option( 'pwa_login_page_color' );
+    $logo     = get_option( 'pwa_logo_path' );
+    $su       = site_url();
+
+    wp_localize_script(
+        'pwa-login',
+        'pwaawp_object',
+        array(
+            'u' => $newadmin,
+            's' => $su,
+            'l' => $logo,
+            'b' => $bg,
+            'c' => $color,
+        )
+    );
+}
 endif;
+
 
 function pwa_login_logo_url() {
     return home_url();

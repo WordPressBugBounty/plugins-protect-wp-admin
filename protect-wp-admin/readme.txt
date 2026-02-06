@@ -3,8 +3,8 @@ Contributors: wpexpertsin, india-web-developer
 Donate link: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=ZEMSYQUZRUK6A  
 Tags: secure login, admin url, protect admin, hack prevention, secure admin  
 Requires at least: 6.0  
-Tested up to: 6.8.1 
-Stable tag: 4.1
+Tested up to: 6.9.1 
+Stable tag: 4.2
 License: GPLv2 or later  
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 

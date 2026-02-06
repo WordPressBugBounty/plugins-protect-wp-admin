@@ -3,14 +3,14 @@
 Plugin Name: Protect WP Admin
 Plugin URI: https://www.wp-experts.in/products/protect-wp-admin-pro
 Description: Protect your admin area by customizing the login URL and restricting access to unauthorized users.
-Version: 4.1
+Version: 4.2
 Author: WPExperts.in
 Author URI: https://www.wp-experts.in
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: protect-wp-admin
 Requires at least: 6.0
-Tested up to: 6.8.1
+Tested up to: 6.9.1
 */
 
 if ( ! defined( 'ABSPATH' ) ) exit; // Exit if accessed directly
@@ -212,56 +212,79 @@ function init_pwa_admin_option_page() {
 endif;
 
 /** add js into admin footer */
-add_action( 'admin_enqueue_scripts', 'init_pwa_admin_scripts' );
+if ( ! function_exists( 'init_pwa_admin_scripts' ) ) :
+function init_pwa_admin_scripts( $hook_suffix ) {
 
-if(!function_exists('init_pwa_admin_scripts')):
-function init_pwa_admin_scripts( $hook_suffix )
-{
-	
-    if ( isset( $_GET['page'] ) && $_GET['page'] === 'pwa-settings' && $hook_suffix === 'settings_page_pwa-settings' ) {
-	
-wp_register_style( 'pwa_admin_style', plugins_url( 'css/pwa-admin-min.css',__FILE__ ) );
-wp_enqueue_style( 'pwa_admin_style' );
+    // Only enqueue on plugin settings page
+    // WordPress gives hook_suffix like "settings_page_pwa-settings"
+    if ( 'settings_page_pwa-settings' !== $hook_suffix ) {
+        return;
+    }
 
-wp_register_script('pwa-script', plugins_url('/js/pwa.js',__FILE__ ), array('jquery','media-upload','thickbox','wp-color-picker'));
-wp_enqueue_script('pwa-script');
-wp_enqueue_style( 'wp-color-picker' ); 
-wp_enqueue_style('thickbox');
+    // Capability check
+    if ( ! current_user_can( 'manage_options' ) ) {
+        return;
+    }
 
-/* Check if .htaccess file is writable using WP_Filesystem */
-require_once ABSPATH . 'wp-admin/includes/file.php';
+    $plugin_version = '4.1';
 
-global $wp_filesystem;
-if ( ! is_object( $wp_filesystem ) ) {
-	WP_Filesystem();
-}
+    // Enqueue admin style
+    wp_enqueue_style(
+        'pwa_admin_style',
+        plugins_url( 'css/pwa-admin-min.css', __FILE__ ),
+        array(),
+        $plugin_version
+    );
 
-$htaccessWriteable = '0';
-$csbwfsHtaccessfilePath = str_replace( '/wp-admin/', '/', getcwd() ) . '/.htaccess';
+    // Enqueue admin script
+    wp_enqueue_script(
+        'pwa-script',
+        plugins_url( 'js/pwa.js', __FILE__ ),
+        array( 'jquery', 'media-upload', 'thickbox', 'wp-color-picker' ),
+        $plugin_version,
+        true
+    );
 
-if ( $wp_filesystem->exists( $csbwfsHtaccessfilePath ) ) {
-	if ( $wp_filesystem->is_writable( $csbwfsHtaccessfilePath ) ) {
-		$htaccessWriteable = '1';
-	}
-}
-	
-$localHostIP = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+    // Enqueue WP native styles
+    wp_enqueue_style( 'wp-color-picker' );
+    wp_enqueue_style( 'thickbox' );
 
-$pwaActive=get_option('pwa_active');
-$url = admin_url('options-permalink.php');
+    /* Check if .htaccess file is writable */
+    require_once ABSPATH . 'wp-admin/includes/file.php';
 
-wp_localize_script( 'pwa-script', 'pwa_admin_object',
-				array( 
-					'st' => $pwaActive,
-					'ip' => $localHostIP,
-					'ht' => $htaccessWriteable,
-					'ur' => $url,
-				)
-			);
-		
-	}
+    global $wp_filesystem;
+    if ( ! is_object( $wp_filesystem ) ) {
+        WP_Filesystem();
+    }
+
+    $htaccess_writeable = '0';
+    $htaccess_path      = str_replace( '/wp-admin/', '/', getcwd() ) . '/.htaccess';
+
+    if ( $wp_filesystem->exists( $htaccess_path ) && $wp_filesystem->is_writable( $htaccess_path ) ) {
+        $htaccess_writeable = '1';
+    }
+
+    // Use sanitize_text_field for IP
+    $local_ip   = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+    $pwa_active = get_option( 'pwa_active' );
+    $url        = admin_url( 'options-permalink.php' );
+
+    wp_localize_script(
+        'pwa-script',
+        'pwa_admin_object',
+        array(
+            'st' => $pwa_active,
+            'ip' => $local_ip,
+            'ht' => $htaccess_writeable,
+            'ur' => $url,
+        )
+    );
 }
 endif;
+
+add_action( 'admin_enqueue_scripts', 'init_pwa_admin_scripts' );
+
+
 
 // Add Check if permalinks are set on plugin activation
 register_activation_hook( __FILE__, 'is_permalink_activate' );
@@ -337,25 +360,82 @@ endif;
 
 add_action('admin_init','pwa_flush_rewrite_rules');
 //flush_rewrite_rules after update value
-if(!function_exists('pwa_flush_rewrite_rules')):
-function pwa_flush_rewrite_rules(){
-if (
-		isset( $_POST['option_page'], $_POST['_wpnonce'] ) &&
-		$_POST['option_page'] === 'pwa_setting_options'
-	) {
-		// Fully unslash and validate nonce first
-		$nonce = wp_unslash( $_POST['_wpnonce'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+if ( ! function_exists( 'pwa_flush_rewrite_rules' ) ) :
+function pwa_flush_rewrite_rules() {
 
-		if ( wp_verify_nonce( $nonce, 'pwa_setting_options-options' ) ) {
-			$pwa_active = isset( $_POST['pwa_active'] ) ? sanitize_text_field( wp_unslash( $_POST['pwa_active'] ) ) : '';
+	// Only process on form submit
+	if ( ! isset( $_POST['option_page'], $_POST['_wpnonce'] ) ) {
+		return;
+	}
 
-			if ( empty( $pwa_active ) ) {
-				flush_rewrite_rules();
-			}
-		}
+	// Verify correct settings group
+	$option_page = sanitize_text_field( wp_unslash( $_POST['option_page'] ) );
+	if ( 'pwa_setting_options' !== $option_page ) {
+		return;
+	}
+
+	// Capability check
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	// Nonce verification
+	$nonce = sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) );
+	if ( ! wp_verify_nonce( $nonce, 'pwa_setting_options-options' ) ) {
+		return;
+	}
+
+	// Get plugin active status safely
+	$pwa_active = isset( $_POST['pwa_active'] )
+		? sanitize_text_field( wp_unslash( $_POST['pwa_active'] ) )
+		: '';
+
+	// Flush rewrite rules only when plugin is disabled
+	if ( empty( $pwa_active ) ) {
+		flush_rewrite_rules();
 	}
 }
 endif;
+/**
+ * Replace default wp-login.php links in WordPress login/reset messages
+ * Works with Protect WP Admin custom admin slug
+ */
+add_filter( 'gettext', 'pwa_custom_checkemail_link', 20, 3 );
+
+function pwa_custom_checkemail_link( $translated_text, $text, $domain ) {
+
+    // Target the exact WordPress string for "checkemail=confirm"
+    if ( $text === 'Check your email for the confirmation link, then visit the login page.' ) {
+
+        // Get Protect WP Admin custom slug
+        $custom_slug = get_option( 'pwa_rewrite_text' );
+
+        if ( ! empty( $custom_slug ) ) {
+            $login_url = site_url( '/' . $custom_slug . '/' );
+
+            // Replace the plain text login page with a clickable link
+            $translated_text = sprintf(
+                /* translators: %s: login URL */
+                __( 'Check your email for the confirmation link, then visit the <a href="%s">login page</a>.', 'protect-wp-admin' ),
+                esc_url( $login_url )
+            );
+        }
+    }
+	
+	
+	            // Handle session expired message
+            if ( 'Your session has expired. Please log in again.' === $text ) {
+                $translated_text = sprintf(
+                    /* translators: %s: login URL */
+                    __( 'Your session has expired. <a href="%s">Log in</a> again.', 'protect-wp-admin' ),
+                    esc_url( $login_url )
+                );
+            }
+
+
+    return $translated_text;
+}
+
 /*
 * call hooks action on update
 * @upgrader_process_complete
@@ -377,4 +457,5 @@ function pwa_upgrade_function( $upgrader_object, $options ) {
        }
     }
 }
+
 ?>
